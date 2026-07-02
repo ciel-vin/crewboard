@@ -1,58 +1,94 @@
-# CrewBoard — Supabase SaaS demo
+# CrewBoard
 
-A multi-tenant team task board that shows a real Supabase build: **Auth**, a
-relational **Postgres** schema, database-level **Row Level Security**, and
-**Realtime** sync — with a Next.js 14 frontend. Sign up → get a private, seeded
-workspace with a live kanban board.
+**A multi-tenant team task board — a real Supabase SaaS, built end-to-end.**
 
-**Stack:** Next.js 14 · TypeScript · Tailwind · Motion · `@supabase/ssr`.
+CrewBoard is a working demo of a production-grade SaaS: sign in and you get your
+own **isolated workspace** with a **live kanban board** that syncs in real time.
+It exists to show the parts that actually matter in a Supabase app — auth, a
+relational schema, database-level security, and realtime — done properly.
+
+**▶ Live demo: https://crewboard-ciel-vins-projects.vercel.app**
+Demo login (or click *“Use demo account”*): `demo@crewboard.app` · `crewboard123`
+
+`Next.js 14` · `TypeScript` · `Supabase (Auth · Postgres · RLS · Realtime)` · `Tailwind` · `Framer Motion`
+
+![CrewBoard landing](./docs/landing.png)
 
 ---
 
-## Setup (you do steps 1–4; the code is ready)
+## What this demonstrates
 
-### 1. Create the Supabase project
-supabase.com → **New project** (free). Region: Singapore (closest to ID).
+| Capability | How it's implemented |
+|---|---|
+| **Supabase Auth** | Email + password with cookie-based SSR sessions (`@supabase/ssr`) and route protection in Next.js middleware. |
+| **Relational Postgres** | A real schema — `organizations → members → projects → tasks → comments` — with foreign keys and cascade deletes. |
+| **Row Level Security** | Every table is RLS-protected. A user can only ever read/write rows in organizations they belong to — enforced **at the database**, not in the UI. |
+| **Realtime** | The board subscribes to Postgres changes, so moving a card in one session updates every other session instantly. |
+| **Role-based access** | `owner / admin / member` roles gate who can manage projects and members. |
+| **Zero-friction onboarding** | A signup trigger auto-seeds each new user a private workspace with a starter board. |
 
-### 2. Run the schema + RLS
-Supabase dashboard → **SQL Editor** → paste all of
-[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) → **Run**.
-This creates the tables, RLS policies, the `create_org` RPC, the signup trigger
-that seeds a workspace, and turns on Realtime for `tasks`.
+![CrewBoard workspace board](./docs/board.png)
 
-### 3. Make demo signups instant
-Authentication → **Sign In / Providers → Email** → turn **OFF** "Confirm email".
-(So a sign-up logs straight into a seeded board — ideal for a demo.)
+---
 
-### 4. Add your keys
+## Architecture
+
+### Data model
 ```
-cp .env.local.example .env.local
+organizations ──< members >── auth.users
+      │
+      └──< projects ──< tasks ──< comments
 ```
-Then paste from Supabase → **Project Settings → API**:
-- `NEXT_PUBLIC_SUPABASE_URL` = Project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = anon public key
 
-(The anon key is browser-safe — RLS is what protects the data.)
+### Row Level Security (the core of multi-tenancy)
+Isolation is guaranteed by the database. `SECURITY DEFINER` helper functions
+(e.g. `is_member(org)`) avoid policy recursion, and every policy checks
+membership:
 
-### 5. Run
+```sql
+-- a user only sees tasks that belong to a project in one of their orgs
+create policy task_select on tasks for select
+  using ( is_member( org_of_project(project_id) ) );
 ```
+
+Open the app in two browsers with **two different accounts** and you'll see each
+workspace is completely invisible to the other — that's RLS, not a client-side
+filter. Full schema + policies: [`supabase/migrations/0001_init.sql`](./supabase/migrations/0001_init.sql).
+
+### Realtime
+The board channel listens to `postgres_changes` on `tasks` (scoped by project);
+inserts, moves and deletes propagate to every connected client, RLS-scoped.
+
+---
+
+## Tech stack
+- **Framework:** Next.js 14 (App Router, Server Components, Server Actions)
+- **Language:** TypeScript
+- **Backend:** Supabase — Postgres, Auth, Row Level Security, Realtime
+- **Styling / motion:** Tailwind CSS, Framer Motion
+- **Hosting:** Vercel (frontend) + Supabase (managed Postgres)
+
+## Project structure
+```
+app/            routes — landing, /login, protected /app workspace
+components/     Board (realtime kanban), UI, icons, motion primitives
+lib/supabase/   browser + server (SSR) Supabase clients
+middleware.ts   session refresh + /app route guard
+supabase/migrations/0001_init.sql   schema · RLS · realtime · seed trigger
+```
+
+## Run it locally
+```bash
+# 1. Create a free Supabase project, then run the SQL migration
+#    (supabase/migrations/0001_init.sql) in the Supabase SQL editor.
+# 2. Add credentials:
+cp .env.local.example .env.local     # fill NEXT_PUBLIC_SUPABASE_URL + ANON_KEY
+# 3. Start:
 npm install
-npm run dev        # http://localhost:3000
+npm run dev                          # http://localhost:3000
 ```
-Sign up → you land on a seeded board. **Open a second browser / incognito** and
-sign up with a different email to see (a) RLS isolation — you can't see the other
-workspace — and (b) drag a card and watch it move live in the other tab.
 
 ---
 
-## Deploy (Vercel)
-1. Push to GitHub (`ciel-vin/crewboard`).
-2. Import to Vercel → add the two `NEXT_PUBLIC_*` env vars.
-3. In Supabase → Authentication → **URL Configuration**: set **Site URL** to the
-   Vercel domain (and add it to Redirect URLs).
-
-## What to point clients at
-- Live URL (after deploy) + this repo.
-- The RLS section of `0001_init.sql` — the part clients scrutinize most.
-
-_Built by Alvin Salim._
+Built by **Alvin Salim** — full-stack developer (Next.js · Supabase · Laravel).
+Portfolio: [portfolio-plum-eight-23.vercel.app](https://portfolio-plum-eight-23.vercel.app) · GitHub: [@ciel-vin](https://github.com/ciel-vin)
